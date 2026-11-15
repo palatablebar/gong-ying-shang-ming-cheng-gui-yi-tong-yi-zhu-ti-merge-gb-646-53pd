@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block body %}
+<section class="panel">
+  <div class="panel-head">
+    <h1 class="panel-title">跨批次承接</h1>
+    <div class="panel-num">
+      基准 {% if source %}{{ source.version_id }}（{{ source.run_id }}）{% else %}无已发布版本{% endif %}
+      · 沿用 {{ stats.relations_carried }} · 待复核 {{ stats.relations_pending - stats.relations_reconfirmed }}
+      · 退出 {{ stats.relations_exited }}
+    </div>
+    <button type="button" class="btn" data-action="recompute-carry">重算承接</button>
+  </div>
+  <div class="grid-two">
+    <table class="tbl tbl-tight">
+      <thead><tr><th>承接项</th><th class="num">数量</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>上一版确认关系</td><td class="num">{{ stats.relations }}</td><td>按业务身份键配对</td></tr>
+        <tr><td>沿用</td><td class="num">{{ stats.relations_carried }}</td><td>旧结论继续生效</td></tr>
+        <tr><td>本批重新确认</td><td class="num">{{ stats.relations_reconfirmed }}</td><td>人工已重判</td></tr>
+        <tr><td>待复核</td><td class="num">{{ stats.relations_pending }}</td><td>身份冲突或关键字段变化</td></tr>
+        <tr><td>退出</td><td class="num">{{ stats.relations_exited }}</td><td>身份键不在本批</td></tr>
+      </tbody>
+    </table>
+    <table class="tbl tbl-tight">
+      <thead><tr><th>主体对照</th><th class="num">数量</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>上一版主体</td><td class="num">{{ stats.subjects - stats.subjects_new }}</td><td>含已退出</td></tr>
+        <tr><td>成员未变沿用</td><td class="num">{{ stats.subjects_carried }}</td><td>构成完全一致</td></tr>
+        <tr><td>新增成员待复核</td><td class="num">{{ stats.subjects_pending }}</td><td>不自动并入原主体</td></tr>
+        <tr><td>主体退出</td><td class="num">{{ stats.subjects_exited }}</td><td>成员全部不在</td></tr>
+        <tr><td>本批新增主体</td><td class="num">{{ stats.subjects_new }}</td><td>上一版无对应</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2 class="panel-title">确认关系承接</h2>
+    <div class="panel-num">{{ relations|length }} 条 · 待复核 {{ pending|length }}</div>
+  </div>
+  {% if relations %}
+  <table class="tbl tbl-dense">
+    <thead><tr><th>业务身份对</th><th>当批候选对</th><th>左侧</th><th>右侧</th><th>旧结论</th><th>承接</th><th>依据</th></tr></thead>
+    <tbody>
+      {% for row in relations %}
+      <tr>
+        <td class="mono clip" title="{{ row.relation_key }}">{{ row.relation_key }}</td>
+        <td class="mono">{{ row.pair_id or '—' }}</td>
+        <td class="clip">{{ row.left_id or '—' }} {{ row.left_name }}<span class="sub mono">{{ row.left_tax or '无税号' }}</span></td>
+        <td class="clip">{{ row.right_id or '—' }} {{ row.right_name }}<span class="sub mono">{{ row.right_tax or '无税号' }}</span></td>
+        <td><span class="tag">{{ '合并' if row.prev_decision == 'merge' else '保留' }}</span></td>
+        <td>
+          <span class="tag {% if row.status == 'carried' %}tag-ok{% elif row.status == 'pending' %}tag-warn{% else %}tag-bad{% endif %}">{{ carry_statuses.get(row.status, row.status) }}</span>
+          {% if row.code %}<span class="sub">{{ reasons.get(row.code) }}</span>{% endif %}
+        </td>
+        <td class="clip" title="{{ row.detail }}">{{ row.detail or '关键字段一致' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">还没有上一版已确认的关系可承接。</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2 class="panel-title">待复核承接</h2>
+    <div class="panel-num">{{ pending|selectattr('resolved', 'equalto', false)|list|length }} 项未判</div>
+    <a class="btn btn-link" href="/reviews">去复核</a>
+  </div>
+  {% if pending %}
+  <table class="tbl tbl-tight">
+    <thead><tr><th>业务身份对</th><th>原因</th><th>详情</th><th>当批候选对</th><th>本批判定</th></tr></thead>
+    <tbody>
+      {% for item in pending %}
+      <tr>
+        <td class="mono clip" title="{{ item.relation_key }}">{{ item.relation_key }}</td>
+        <td><span class="tag tag-warn">{{ reasons.get(item.code) }}</span></td>
+        <td class="clip" title="{{ item.detail }}">{{ item.detail }}</td>
+        <td class="mono">{{ item.pair_id or '—' }}</td>
+        <td>
+          {% if item.resolved %}<span class="tag tag-ok">{{ '合并' if item.current_decision == 'merge' else '保留' }}</span>
+          {% else %}<span class="tag tag-bad">未判</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">没有待复核的承接关系。</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2 class="panel-title">主体承接</h2>
+    <div class="panel-num">{{ subjects|length }} 个对照</div>
+  </div>
+  <table class="tbl tbl-dense">
+    <thead><tr><th>上一版主体</th><th>当批主体</th><th>当批代表</th><th>承接</th><th class="num">成员</th><th class="num">当批合计(元)</th><th>依据</th></tr></thead>
+    <tbody>
+      {% for row in subjects %}
+      <tr>
+        <td class="mono">{{ row.prev_cluster or '—' }}</td>
+        <td class="mono">{{ row.left_key or '—' }}</td>
+        <td class="mono">{{ row.current_rep or '—' }}</td>
+        <td><span class="tag {% if row.status == 'carried' %}tag-ok{% elif row.status == 'new' %}tag{% elif row.status == 'pending' %}tag-warn{% else %}tag-bad{% endif %}">{{ subject_statuses.get(row.status, row.status) }}</span>
+          <span class="sub">{{ reasons.get(row.code) }}</span></td>
+        <td class="num">{{ row.member_count }}</td>
+        <td class="num">{{ row.total_amount|money }}</td>
+        <td class="clip" title="{{ row.detail }}">{{ row.detail }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

@@ -1,6 +1,6 @@
 # 深度登记 供应商主数据台账（gb-646 entitymerge）
 
-- 规模：中型（7 个功能模块，78 个文件，81 条测试）
+- 规模：中型（9 个功能模块，108 条测试）
 - 核心规则：名称归一后按 2-gram 分块，相似度 = 0.55 × bigram Dice + 0.45 × 编辑比率；
   税号不同为硬冲突禁止合并，税号相同强制合并；并查集合并，代表元取税号最小者
 - 使用者与工作流：集团采购中心主数据岗，每月收 6 个 ERP 导出的供应商名录，
@@ -17,6 +17,8 @@
 | M5 等价类合并 | 生成合并簇，核对代表元与金额 | POST /api/clusters | `app/modules/m5_clusters/unionfind.py` `app/modules/m5_clusters/represent.py` `app/modules/m5_clusters/allocate.py` `app/modules/m5_clusters/service.py` `app/modules/m5_clusters/handler.py` | `tests/test_clusters.py` |
 | M6 复核批次 | 判定边界对，看引用异常与批次历史 | POST /api/reviews/{pair_id}/decision | `app/modules/m6_reviews/queue.py` `app/modules/m6_reviews/history.py` `app/modules/m6_reviews/version.py` `app/modules/m6_reviews/service.py` `app/modules/m6_reviews/handler.py` | `tests/test_reviews.py` |
 | M7 主数据导出 | 下载主数据、成员分摊、隔离区与运行清单 | GET /api/export/master.csv | `app/modules/m7_export/master_out.py` `app/modules/m7_export/quarantine_out.py` `app/modules/m7_export/manifest_out.py` `app/modules/m7_export/service.py` `app/modules/m7_export/handler.py` | `tests/test_export.py` |
+| M8 跨批次承接 | 核对沿用、待复核、退出主体，重算承接 | GET /api/carry | `app/modules/m8_carry/identity.py` `app/modules/m8_carry/service.py` `app/modules/m8_carry/handler.py` | `tests/test_carry.py` |
+| M9 版本发布 | 发布版本、看发布前后差异、对比任意两版 | POST /api/versions/publish | `app/modules/m9_versions/service.py` `app/modules/m9_versions/handler.py` | `tests/test_versions.py` |
 
 ## 陷阱登记
 
@@ -35,6 +37,10 @@
 | TRAP-22 | 同一主体多个别名 | 合并顺序不同得到不同簇 | 并查集根取字典序较小者，代表元规则固定 | `app/modules/m5_clusters/unionfind.py` `app/modules/m5_clusters/represent.py` | `tests/test_clusters.py::test_merge_order_independent` |
 | TRAP-24 | 簇金额按比例分摊到成员 | 各自四舍五入后合计不等 | 最大余额法分到 0.01，同分按供应商号 | `app/modules/m5_clusters/allocate.py` | `tests/test_clusters.py::test_share_largest_remainder` |
 | TRAP-26 | 复核决定被旧页面重复提交 | 后提交无条件覆盖新决定 | 版本乐观锁，expected_version 不符即 409 | `app/modules/m6_reviews/version.py` | `tests/test_reviews.py::test_stale_decision_rejected` |
+| TRAP-27 | 每月新批到达，旧结论丢失或盲目沿用 | 全部重判，或直接拿旧结论套用，改名/换税号被误并 | 业务身份键承接，关键字段变化/身份冲突/新增成员回复核，退出单独登记 | `app/modules/m8_carry/service.py` | `tests/test_carry.py` |
+| TRAP-28 | 主数据与复核决定分别写入 | 中途失败出现"新主数据 + 旧决定" | 同事务发布版本，提交前自检，失败删除半成品 | `app/modules/m9_versions/service.py` `app/store.py` | `tests/test_versions.py::test_failed_publish_keeps_previous_version` |
+| TRAP-29 | 同批重跑重复发布 | 版本号与台账逐次增长 | 内容摘要去重，承接台账按 run_id 整批替换 | `app/modules/m9_versions/service.py` | `tests/test_versions.py::test_same_batch_rerun_keeps_one_version` |
+| TRAP-30 | 簇编号每批复用 | 按编号对比把主体全认成新增/消亡 | 按成员业务身份键配对再分类 | `app/modules/m9_versions/service.py` | `tests/test_versions.py::test_diff_aligns_subjects_by_identity_not_cluster_id` |
 
 ## 对账规则
 
@@ -42,6 +48,8 @@
 - 金额：Σ采纳记录金额 = Σ簇金额 = Σ成员分摊，全部 Decimal 逐分相等
 - 候选对：候选总数 = 自动 + 复核 + 拒绝；复核决定写入后簇与金额立即重算
 - 空态：仅表头 / 全空行 / 正常文件三种结论分别记录在文件诊断里
+- 承接：关系承接  = 沿用 + 本批重新确认 + 待复核 + 退出；主体承接覆盖上一版全部主体
+- 版本：已发布版本的主体、成员分摊与决定来自同一快照，重新判定不改写旧版本
 
 ## 已知不覆盖
 
@@ -50,3 +58,5 @@
 - 银行账号仅作为证据字段参与展示，未做账户一致性核验
 - 复核决定只支持合并与保留，未提供拆分已合并簇的能力
 - 导出为单次全量 CSV，未做分页或增量下载
+- 业务身份键取集团编码，集团编码变更会被当成"旧主体退出 + 新主体"，需人工在承接页确认
+- 承接只覆盖"合并/保留"两类结论，已发布版本之间不做自动回滚到更早版本

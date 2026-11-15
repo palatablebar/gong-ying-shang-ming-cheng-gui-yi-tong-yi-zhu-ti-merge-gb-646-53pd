@@ -68,5 +68,10 @@ SCORE_SCALE = Decimal("0.000001")
 MAX_BLOCK_SIZE = 120
 MAX_CANDIDATES = 4000
 
+# 跨批次沿用：业务身份优先取集团编码（supplier_no），缺失时回退供应商编码。
+# 这三个字段任一变化即视为业务身份不再相容，已确认关系回到待复核。
+IDENTITY_KEY_FIELDS = ("tax_id", "norm_name", "city")
+VERSION_PREFIX = "V-"
+
 TZ_DISPLAY = "Asia/Shanghai"
 PAGE_SIZE = 60

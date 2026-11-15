@@ -8,6 +8,7 @@ from ... import store
 from ...errors import NotFound
 from ...reasons import C_CLUSTER_CONFLICT, P_TAX_CONFLICT, V_UNKNOWN_RUN
 from ..m4_pairs import service as pair_service
+from ..m8_carry import service as carry_service
 from . import allocate, represent, unionfind
 
 
@@ -16,7 +17,7 @@ def _sum(records) -> Decimal:
 
 
 def ensure_clusters(run_id: str) -> dict:
-    """总是重算：复核决定写入后，簇与金额立即一致。"""
+    """总是重算：复核决定写入后，簇与金额立即一致；随后刷新主体承接。"""
     pair_service.ensure_pairs(run_id)
     records = {record["supplier_id"]: record for record in store.list_records(run_id)}
     if not records:
@@ -73,6 +74,7 @@ def ensure_clusters(run_id: str) -> dict:
                                 "supplier_id": supplier_id,
                                 "share_amount": share})
     store.save_clusters(run_id, clusters, member_rows)
+    carry_service.refresh_subjects(run_id)
     return summary(run_id)
 
 

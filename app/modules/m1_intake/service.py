@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 
 from ... import store
 from ...config import RULE_VERSION, SAMPLE_DIR, SAMPLE_FILES
@@ -69,14 +70,15 @@ def _row_record(index, cells, raw, source, line_no):
     }, amount_error
 
 
-def ingest(files=None, force: bool = False) -> dict:
+def ingest(files=None, force: bool = False, directory=None) -> dict:
     started = utc_now()
     names = tuple(_safe_name(name) for name in (files or SAMPLE_FILES))
+    base = Path(directory) if directory else SAMPLE_DIR
     digests, file_stats = [], []
     accepted, quarantine, conflicts = [], [], []
 
     for source in names:
-        path = SAMPLE_DIR / source
+        path = base / source
         if not path.is_file():
             raise NotFound(E_FILE_MISSING, source)
         data = path.read_bytes()
@@ -177,7 +179,8 @@ def ingest(files=None, force: bool = False) -> dict:
         "run_id": run_id,
         "input_sha256": combined,
         "rule_version": RULE_VERSION,
-        "params_json": json.dumps({"files": list(names), "force": force}, ensure_ascii=False),
+        "params_json": json.dumps({"files": list(names), "force": force,
+                                   "directory": str(base)}, ensure_ascii=False),
         "created_at": utc_iso(started),
         "elapsed_ms": elapsed,
         "counts_json": json.dumps(counts, ensure_ascii=False, sort_keys=True),

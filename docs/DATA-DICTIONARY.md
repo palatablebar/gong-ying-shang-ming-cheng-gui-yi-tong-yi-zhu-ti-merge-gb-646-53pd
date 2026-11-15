@@ -21,6 +21,23 @@
   因此同一批文件重跑得到同一个批次，规则版本升级后同输入会生成新批次。
 - 运行清单同时保留每个文件的 sha256、字节数、编码与分段数。
 
+## 业务身份与承接
+
+- 业务身份键 `identity_key`：优先 `NO:<supplier_no>`，无集团编码时退回 `ID:<supplier_id>`。
+  跨批次沿用、主体对照、版本差异全部按它配对，不按簇编号或候选对编号。
+- 关键字段 `IDENTITY_KEY_FIELDS`：`tax_id`、`norm_name`、`city`。任一变化记
+  `R_PENDING_KEY_FIELD`；两个以上同时变化记 `R_PENDING_IDENTITY`。
+- 承接去向：`carried` 沿用、`pending` 待复核、`exited` 退出、`new` 本批新增主体。
+- 沿用结论写成当批决定（`origin=carried`），保留原操作人、原决定时间与来源版本；
+  人工重判后改为 `origin=manual` 并记 `R_RECONFIRMED`。
+
+## 版本
+
+- 版本号 `V-0001` 起按发布顺序单调递增；`status` 为 `published` 或 `superseded`。
+- `content_digest` 覆盖批次、规则版本、主体、成员分摊、决定与承接台账；同摘要不新增版本。
+- 版本快照三张表 `version_clusters` / `version_members` / `version_decisions` 与版本头
+  同一事务写入；重新判定只影响下一版本，已发布版本的导出内容不变。
+
 ## 空值与哨兵
 
 - `null` 与空串：字段确实没有值，例如空税号表示该供应商未登记税号。

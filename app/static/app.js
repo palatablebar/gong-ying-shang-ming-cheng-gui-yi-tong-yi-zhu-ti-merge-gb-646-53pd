@@ -66,6 +66,14 @@
           return postJson('/api/suppliers/import', { force: true })
             .then(function () { window.location.reload(); });
         }
+        if (name === 'recompute-carry') {
+          return postJson('/api/carry/recompute', {})
+            .then(function () { window.location.reload(); });
+        }
+        if (name === 'publish-version') {
+          return postJson('/api/versions/publish', {})
+            .then(function () { window.location.reload(); });
+        }
         return Promise.resolve();
       });
       return;

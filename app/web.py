@@ -20,6 +20,8 @@ from .modules.m3_blocks import service as block_service
 from .modules.m4_pairs import service as pair_service
 from .modules.m5_clusters import service as cluster_service
 from .modules.m6_reviews import service as review_service
+from .modules.m8_carry import service as carry_service
+from .modules.m9_versions import service as version_service
 
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
@@ -30,6 +32,8 @@ NAV = (
     ("pairs", "候选对", "/pairs"),
     ("clusters", "合并簇", "/clusters"),
     ("reviews", "复核", "/reviews"),
+    ("carry", "跨批次", "/carry"),
+    ("versions", "版本", "/versions"),
     ("export", "导出", "/export"),
 )
 
@@ -114,6 +118,7 @@ def current_run(force: bool = False) -> dict:
 
 
 def base_context(request: Request, page: str, title: str, run) -> dict:
+    published = version_service.current_for_run(run["run_id"])
     return {
         "request": request,
         "app_name": APP_NAME,
@@ -127,6 +132,11 @@ def base_context(request: Request, page: str, title: str, run) -> dict:
         "reasons": all_codes(),
         "verdicts": {"auto": "自动", "review": "复核", "reject": "拒绝"},
         "empty_states": {"header_only": "仅表头", "blank_rows": "全空行", "no_row": "无数据行"},
+        "published": published,
+        "carry_statuses": {"carried": "沿用", "pending": "待复核", "exited": "退出",
+                           "new": "新增"},
+        "subject_statuses": {"carried": "沿用", "pending": "待复核", "exited": "退出",
+                             "new": "新增"},
     }
 
 
@@ -220,6 +230,43 @@ def page_reviews(request: Request):
         "runs": run_briefs(8),
     })
     return render(request, "reviews.html", context)
+
+
+@router.get("/carry", response_class=HTMLResponse)
+def page_carry(request: Request):
+    run = current_run()
+    run_id = run["run_id"]
+    cluster_service.ensure_clusters(run_id)
+    payload = carry_service.summary(run_id)
+    context = base_context(request, "carry", "跨批次承接", run)
+    context.update({
+        "carry": payload,
+        "stats": payload["counts"],
+        "relations": payload["relations"],
+        "subjects": payload["subjects"],
+        "pending": payload["pending"],
+        "source": store.get_version(payload["source_version"])
+        if payload["source_version"] else None,
+    })
+    return render(request, "carry.html", context)
+
+
+@router.get("/versions", response_class=HTMLResponse)
+def page_versions(request: Request):
+    run = current_run()
+    run_id = run["run_id"]
+    cluster_service.ensure_clusters(run_id)
+    carry_service.compute(run_id)
+    versions = [version_service.summary_of(row) for row in store.list_versions("", 20)]
+    current = version_service.current_for_run(run_id)
+    context = base_context(request, "versions", "版本与差异", run)
+    context.update({
+        "versions": versions,
+        "current": current,
+        "preview": version_service.preview(run_id),
+        "latest": version_service.latest_published(),
+    })
+    return render(request, "versions.html", context)
 
 
 @router.get("/export", response_class=HTMLResponse)

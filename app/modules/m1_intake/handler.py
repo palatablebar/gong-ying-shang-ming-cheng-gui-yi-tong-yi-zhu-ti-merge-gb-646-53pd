@@ -15,12 +15,14 @@ router = APIRouter(prefix="/api", tags=["m1-intake"])
 class ImportRequest(BaseModel):
     files: list[str] | None = None
     force: bool = False
+    directory: str | None = None
 
 
 @router.post("/suppliers/import")
 def import_suppliers(body: ImportRequest | None = None):
     payload = body or ImportRequest()
-    run = service.ingest(files=payload.files, force=payload.force)
+    run = service.ingest(files=payload.files, force=payload.force,
+                         directory=payload.directory)
     return service.summary(run["run_id"])
 
 

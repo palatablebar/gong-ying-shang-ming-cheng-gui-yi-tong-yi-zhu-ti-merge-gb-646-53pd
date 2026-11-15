@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block body %}
+<section class="panel">
+  <div class="panel-head">
+    <h1 class="panel-title">版本与差异</h1>
+    <div class="panel-num">
+      当前批次 {{ '已发布 ' + current.version_id if current else '未发布' }}
+      {% if latest and (not current or latest.version_id != current.version_id) %} · 最新 {{ latest.version_id }}{% endif %}
+    </div>
+    <button type="button" class="btn" data-action="publish-version"{% if current %} disabled{% endif %}>
+      {{ '已发布' if current else '发布版本' }}
+    </button>
+  </div>
+  <div class="stat-line">发布把正式主数据与复核决定作为同一版本一次性切换；失败则保持上一版不变。</div>
+  {% if current %}
+  <div class="btn-row">
+    <a class="btn" href="/api/versions/{{ current.version_id }}/master.csv" download>当前版本主数据 CSV</a>
+    <a class="btn" href="/api/versions/{{ current.version_id }}/decisions.csv" download>当前版本决定 CSV</a>
+    <a class="btn btn-ghost" href="/api/versions/{{ current.version_id }}" target="_blank" rel="noopener">版本明细 JSON</a>
+  </div>
+  <table class="tbl tbl-tight">
+    <thead><tr><th>版本</th><th>父版本</th><th>批次</th><th>发布时间</th><th class="num">主体</th><th class="num">成员</th><th class="num">决定</th><th class="num">金额合计(元)</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="mono strong">{{ current.version_id }}</td>
+        <td class="mono">{{ current.parent_version or '—' }}</td>
+        <td class="mono">{{ current.run_id }}</td>
+        <td>{{ current.published_at|ts }}</td>
+        <td class="num">{{ current.counts.subjects }}</td>
+        <td class="num">{{ current.counts.members }}</td>
+        <td class="num">{{ current.counts.decisions }}</td>
+        <td class="num">{{ current.counts.amount|money }}</td>
+      </tr>
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2 class="panel-title">发布前差异</h2>
+    <div class="panel-num">
+      相对 {% if preview.source_version %}{{ preview.source_version }}{% else %}空版本（首次发布）{% endif %}
+      · 新增主体 {{ preview.subjects.added|length }} · 构成变化 {{ preview.subjects.changed|length }} · 退出 {{ preview.subjects.removed|length }}
+    </div>
+  </div>
+  <div class="stat-line">
+    承接：沿用 {{ preview.carry.relations_carried|default(0) }} · 待复核 {{ preview.carry.relations_pending|default(0) }}
+    · 退出 {{ preview.carry.relations_exited|default(0) }}；
+    决定新增 {{ preview.decisions.added|length }} · 撤销 {{ preview.decisions.removed|length }} · 变更 {{ preview.decisions.changed|length }}
+  </div>
+  <table class="tbl tbl-dense">
+    <thead><tr><th>差异</th><th>上一版主体</th><th>当批主体</th><th>代表</th><th class="num">成员</th><th class="num">当批合计(元)</th><th>成员变化</th></tr></thead>
+    <tbody>
+      {% for item in preview.subjects.added %}
+      <tr><td><span class="tag tag-ok">新增</span></td><td class="mono">—</td><td class="mono">{{ item.after.cluster_id }}</td><td class="mono">{{ item.after.rep_id }}</td><td class="num">{{ item.after.member_count }}</td><td class="num">{{ item.after.total_amount|money }}</td><td class="mono clip">{{ item.after.member_keys|join(' ') }}</td></tr>
+      {% endfor %}
+      {% for item in preview.subjects.changed %}
+      <tr><td><span class="tag tag-warn">构成变化</span></td><td class="mono">{{ item.before.cluster_id }}</td><td class="mono">{{ item.after.cluster_id }}</td><td class="mono">{{ item.after.rep_id }}</td><td class="num">{{ item.after.member_count }}</td><td class="num">{{ item.after.total_amount|money }}</td><td class="mono clip">+{{ item.added_keys|join(',') }} −{{ item.removed_keys|join(',') }}</td></tr>
+      {% endfor %}
+      {% for item in preview.subjects.removed %}
+      <tr><td><span class="tag tag-bad">退出</span></td><td class="mono">{{ item.before.cluster_id }}</td><td class="mono">—</td><td class="mono">{{ item.before.rep_id }}</td><td class="num">{{ item.before.member_count }}</td><td class="num">{{ item.before.total_amount|money }}</td><td class="mono clip">−{{ item.removed_keys|join(',') }}</td></tr>
+      {% endfor %}
+      {% if not preview.subjects.added and not preview.subjects.changed and not preview.subjects.removed %}
+      <tr><td colspan="7" class="empty">与上一版主体完全一致，发布不会改变主数据。</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+  {% if preview.decisions.removed or preview.decisions.changed %}
+  <table class="tbl tbl-tight">
+    <thead><tr><th>决定差异</th><th>候选对</th><th>上一版</th><th>当批</th></tr></thead>
+    <tbody>
+      {% for item in preview.decisions.changed %}
+      <tr><td><span class="tag tag-warn">变更</span></td><td class="mono">{{ item.after.pair_id }}</td><td>{{ '合并' if item.before.decision == 'merge' else '保留' }}</td><td>{{ '合并' if item.after.decision == 'merge' else '保留' }}</td></tr>
+      {% endfor %}
+      {% for item in preview.decisions.removed %}
+      <tr><td><span class="tag tag-bad">撤销</span></td><td class="mono">{{ item.pair_id }}</td><td>{{ '合并' if item.decision == 'merge' else '保留' }}</td><td>—</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2 class="panel-title">版本清单</h2>
+    <div class="panel-num">{{ versions|length }} 个 · 同一批重跑不新增</div>
+  </div>
+  <table class="tbl tbl-tight">
+    <thead><tr><th>版本</th><th>状态</th><th>父版本</th><th>批次</th><th>发布时间</th><th class="num">主体</th><th class="num">决定</th><th class="num">金额(元)</th><th></th></tr></thead>
+    <tbody>
+      {% for item in versions %}
+      <tr>
+        <td class="mono strong">{{ item.version_id }}</td>
+        <td><span class="tag {% if item.status == 'published' %}tag-ok{% else %}tag-warn{% endif %}">{{ '已发布' if item.status == 'published' else '已被替代' }}</span></td>
+        <td class="mono">{{ item.parent_version or '—' }}</td>
+        <td class="mono">{{ item.run_id }}</td>
+        <td>{{ item.published_at|ts }}</td>
+        <td class="num">{{ item.counts.subjects }}</td>
+        <td class="num">{{ item.counts.decisions }}</td>
+        <td class="num">{{ item.counts.amount|money }}</td>
+        <td class="btn-cell">
+          <a class="btn btn-link" href="/api/versions/diff?before={{ item.version_id }}">对比上一版</a>
+          <a class="btn btn-link" href="/api/versions/{{ item.version_id }}/master.csv" download>主数据</a>
+          <a class="btn btn-link" href="/api/versions/{{ item.version_id }}/decisions.csv" download>决定</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

@@ -123,3 +123,52 @@ def test_full_sample_counts(run):
     assert counts["input_rows"] == counts["accepted"] + counts["quarantined"] + counts["conflicts"]
     assert run["input_sha256"] == run["input_sha256"].lower()
     assert len(run["input_sha256"]) == 64
+
+
+def test_import_from_directory(db, tmp_path):
+    """跨批次演示需要从任意目录采信；目录只影响读取位置，批次号仍由文件摘要决定。"""
+    import shutil
+
+    from app.config import SAMPLE_DIR, SAMPLE_FILES
+
+    target = tmp_path / "batch"
+    target.mkdir()
+    for name in SAMPLE_FILES:
+        shutil.copy(SAMPLE_DIR / name, target / name)
+    run = service.ingest(directory=str(target))
+    assert run["run_id"] == EXP.RUN_ID
+    assert run["counts_json"] == service.ingest()["counts_json"]
+
+
+def test_legacy_database_gets_new_columns(tmp_path):
+    """老库升级：已有表自动补 origin/carry 列，旧决定按人工处理。"""
+    import sqlite3
+
+    from app import store
+
+    path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE decisions (run_id TEXT NOT NULL, pair_id TEXT NOT NULL, decision TEXT NOT NULL,
+          expected_version INTEGER NOT NULL, version INTEGER NOT NULL, operator TEXT NOT NULL,
+          decided_at TEXT NOT NULL, PRIMARY KEY (run_id, pair_id));
+        INSERT INTO decisions VALUES ('R', 'P-1', 'keep', 0, 1, '王核', '2026-01-01T00:00:00Z');
+        CREATE TABLE pair_scores (run_id TEXT NOT NULL, pair_id TEXT NOT NULL, left_id TEXT NOT NULL,
+          right_id TEXT NOT NULL, dice TEXT NOT NULL, ratio TEXT NOT NULL, score TEXT NOT NULL,
+          verdict TEXT NOT NULL, reason_code TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
+          PRIMARY KEY (run_id, pair_id));
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    store.init_db(path)
+    conn = sqlite3.connect(path)
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(decisions)")}
+    assert {"origin", "source_version", "carry_code"} <= columns
+    origin = conn.execute("SELECT origin FROM decisions").fetchone()[0]
+    assert origin == "manual"
+    pair_columns = {row[1] for row in conn.execute("PRAGMA table_info(pair_scores)")}
+    assert {"carry_status", "carry_code", "carry_detail"} <= pair_columns
+    conn.close()

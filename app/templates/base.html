@@ -14,6 +14,7 @@
   <div class="topbar-meta">
     <span class="stamp">批次 {{ run.run_id }}</span>
     <span class="stamp">规则 {{ rule_version }}</span>
+    <span class="stamp">{% if published %}版本 {{ published.version_id }}{% else %}未发布{% endif %}</span>
     <span class="stamp">{{ tz_label }}</span>
   </div>
   <button type="button" class="btn btn-ghost" data-print>打印</button>

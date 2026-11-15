@@ -4,6 +4,7 @@ from __future__ import annotations
 from ... import store
 from ..m4_pairs import service as pair_service
 from ..m5_clusters import service as cluster_service
+from ..m8_carry import service as carry_service
 from . import history, queue, version
 
 
@@ -24,12 +25,17 @@ def queue_stats(run_id: str) -> dict:
     items = queue_items(run_id)
     decided = sum(1 for item in items if item["decision"])
     references = queue.reference_issues(list(prepare(run_id)["records"].values()))
+    carry = carry_service.counts(run_id)
     return {
         "pending": len(items) - decided,
         "decided": decided,
         "total": len(items),
         "references": len(references),
         "reference_codes": sorted({item["reason_code"] for item in references}),
+        "carried": carry.get("relations_carried", 0),
+        "carry_pending": carry.get("relations_pending", 0),
+        "carry_resolved": carry.get("relations_reconfirmed", 0),
+        "carry_exited": carry.get("relations_exited", 0),
     }
 
 
@@ -41,7 +47,9 @@ def decide(run_id: str, pair_id: str, decision: str, expected_version: int,
            operator: str = "采购主数据组") -> dict:
     pair_service.ensure_pairs(run_id)
     record = version.decide(run_id, pair_id, decision, expected_version, operator)
+    # 人工判定会改变主体构成，承接状态随之重算；已发布批次不可再改。
     cluster_service.ensure_clusters(run_id)
+    carry_service.compute(run_id)
     return record
 
 

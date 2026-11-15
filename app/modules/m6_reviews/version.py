@@ -4,14 +4,22 @@ from __future__ import annotations
 from ... import store
 from ...errors import Conflict, DomainError, NotFound
 from ...manifest import utc_iso, utc_now
-from ...reasons import P_TAX_CONFLICT, V_BAD_DECISION, V_STALE_DECISION, V_UNKNOWN_PAIR
+from ...reasons import (
+    P_TAX_CONFLICT,
+    V_BAD_DECISION,
+    V_STALE_DECISION,
+    V_UNKNOWN_PAIR,
+)
 
 ALLOWED = ("merge", "keep")
 
 
 def current_version(run_id: str, pair_id: str) -> int:
     decision = store.get_decision(run_id, pair_id)
-    return decision["version"] if decision else 0
+    if not decision:
+        return 0
+    # 沿用行是系统生成的，不算人工版本；人工判定从 0 起算，首个决定得到 1。
+    return 0 if decision.get("origin") == "carried" else decision["version"]
 
 
 def decide(run_id: str, pair_id: str, decision: str, expected_version: int,
@@ -34,6 +42,9 @@ def decide(run_id: str, pair_id: str, decision: str, expected_version: int,
         "version": current + 1,
         "operator": operator,
         "decided_at": utc_iso(utc_now()),
+        "origin": "manual",
+        "source_version": "",
+        "carry_code": "",
     }
     store.save_decision(record)
     return record
